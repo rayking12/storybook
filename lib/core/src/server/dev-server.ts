@@ -1,6 +1,6 @@
 import { logger } from '@storybook/node-logger';
 import open from 'better-opn';
-import express, { Router } from 'express';
+import express, { Express, Router } from 'express';
 import { pathExists, readFile } from 'fs-extra';
 import http from 'http';
 import https from 'https';
@@ -10,10 +10,12 @@ import prettyTime from 'pretty-hrtime';
 import { stringify } from 'telejson';
 import dedent from 'ts-dedent';
 import favicon from 'serve-favicon';
-import webpack, { ProgressPlugin } from 'webpack';
-import webpackDevMiddleware from 'webpack-dev-middleware';
+import webpack, { Compiler, ProgressPlugin, Stats } from 'webpack';
+import webpackDevMiddleware, { WebpackDevMiddleware } from 'webpack-dev-middleware';
 import webpackHotMiddleware from 'webpack-hot-middleware';
 
+// eslint-disable-next-line import/no-extraneous-dependencies
+import { NextHandleFunction } from 'connect';
 import { getMiddleware } from './utils/middleware';
 import { logConfig } from './logConfig';
 import loadConfig from './config';
@@ -26,10 +28,10 @@ const dllPath = path.join(__dirname, '../../dll');
 
 const cache = {};
 
-let previewProcess;
-let previewReject;
+let previewProcess: WebpackDevMiddleware & NextHandleFunction;
+let previewReject: (reason?: any) => void;
 
-const bailPreview = (e) => {
+const bailPreview = (e: Error) => {
   if (previewReject) previewReject();
   if (previewProcess) {
     try {
@@ -42,7 +44,15 @@ const bailPreview = (e) => {
   throw e;
 };
 
-async function getServer(app, options) {
+async function getServer(
+  app: Express,
+  options: {
+    https?: boolean;
+    sslCert?: string;
+    sslKey?: string;
+    sslCa?: string[];
+  }
+) {
   if (!options.https) {
     return http.createServer(app);
   }
@@ -66,7 +76,7 @@ async function getServer(app, options) {
   return https.createServer(sslOptions, app);
 }
 
-async function useStatics(router, options) {
+async function useStatics(router: any, options: { staticDir?: string[] }) {
   const { staticDir } = options;
 
   let hasCustomFavicon = false;
@@ -102,7 +112,7 @@ async function useStatics(router, options) {
   }
 }
 
-function openInBrowser(address) {
+function openInBrowser(address: string) {
   try {
     open(address);
   } catch (error) {
@@ -114,18 +124,27 @@ function openInBrowser(address) {
   }
 }
 
-const router = new Router();
+// @ts-ignore
+const router: Router = new Router();
 
-const printDuration = (startTime) =>
+const printDuration = (startTime: [number, number]) =>
   prettyTime(process.hrtime(startTime))
     .replace(' ms', ' milliseconds')
     .replace(' s', ' seconds')
     .replace(' m', ' minutes');
 
-const useProgressReporting = async (compiler, options, startTime) => {
+const useProgressReporting = async (
+  compiler: Compiler,
+  options: any,
+  startTime: [number, number]
+) => {
   let value = 0;
-  let totalModules;
-  let reportProgress = () => {};
+  let totalModules: number;
+  let reportProgress: (progress?: {
+    value?: number;
+    message: string;
+    modules?: any;
+  }) => void = () => {};
 
   router.get('/progress', (request, response) => {
     response.setHeader('Cache-Control', 'no-cache');
@@ -136,14 +155,14 @@ const useProgressReporting = async (compiler, options, startTime) => {
     const close = () => response.end();
     response.on('close', close);
 
-    reportProgress = (progress) => {
+    reportProgress = (progress: any) => {
       if (response.writableEnded) return;
       response.write(`data: ${JSON.stringify(progress)}\n\n`);
       if (progress.value === 1) close();
     };
   });
 
-  const handler = (newValue, message, arg3) => {
+  const handler = (newValue: number, message: string, arg3: any) => {
     value = Math.max(newValue, value); // never go backwards
     const progress = { value, message: message.charAt(0).toUpperCase() + message.slice(1) };
     if (message === 'building') {
@@ -151,7 +170,7 @@ const useProgressReporting = async (compiler, options, startTime) => {
       const complete = parseInt(counts[1], 10);
       const total = parseInt(counts[2], 10);
       if (!Number.isNaN(complete) && !Number.isNaN(total)) {
-        progress.modules = { complete, total };
+        (progress as any).modules = { complete, total };
         totalModules = total;
       }
     }
@@ -175,7 +194,7 @@ const startManager = async ({
   outputDir,
   configDir,
   prebuiltDir,
-}) => {
+}: any) => {
   let managerConfig;
   if (!prebuiltDir) {
     // this is pretty slow
@@ -219,6 +238,7 @@ const startManager = async ({
     },
     // this actually causes 0 (regular) output from wdm & webpack
     logLevel: 'warn',
+    // @ts-ignore
     clientLogLevel: 'warning',
     noInfo: true,
   });
@@ -230,13 +250,13 @@ const startManager = async ({
 
   router.use(middleware);
 
-  const managerStats = await new Promise((resolve) => middleware.waitUntilValid(resolve));
+  const managerStats: Stats = await new Promise((resolve) => middleware.waitUntilValid(resolve));
   if (!managerStats) throw new Error('no stats after building preview');
   if (managerStats.hasErrors()) throw managerStats;
   return { managerStats, managerTotalTime: process.hrtime(startTime) };
 };
 
-const startPreview = async ({ startTime, options, configType, outputDir }) => {
+const startPreview = async ({ startTime, options, configType, outputDir }: any) => {
   if (options.ignorePreview) {
     return { previewStats: {}, previewTotalTime: 0 };
   }
@@ -272,10 +292,10 @@ const startPreview = async ({ startTime, options, configType, outputDir }) => {
     ...previewConfig.devServer,
   });
 
-  router.use(previewProcess);
+  router.use(previewProcess as any);
   router.use(webpackHotMiddleware(compiler));
 
-  const previewStats = await new Promise((resolve, reject) => {
+  const previewStats: Stats = await new Promise((resolve, reject) => {
     previewProcess.waitUntilValid(resolve);
     previewReject = reject;
   });
@@ -284,7 +304,7 @@ const startPreview = async ({ startTime, options, configType, outputDir }) => {
   return { previewStats, previewTotalTime: process.hrtime(startTime) };
 };
 
-export async function storybookDevServer(options) {
+export async function storybookDevServer(options: any) {
   const app = express();
   const server = await getServer(app, options);
 
@@ -317,7 +337,9 @@ export async function storybookDevServer(options) {
   const networkAddress = `${proto}://${ip.address()}:${port}/`;
 
   await new Promise((resolve, reject) => {
-    server.listen({ port, host }, (error) => (error ? reject(error) : resolve()));
+    // FIXME: Following line doesn't match TypeScript signature at all 🤔
+    // @ts-ignore
+    server.listen({ port, host }, (error: Error) => (error ? reject(error) : resolve()));
   });
 
   const prebuiltDir = await getPrebuiltDir({ configDir, options });
