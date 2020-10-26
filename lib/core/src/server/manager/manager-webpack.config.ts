@@ -16,6 +16,7 @@ import { loadEnv } from '../config/utils';
 import { babelLoader } from './babel-loader-manager';
 import { resolvePathInStorybookCache } from '../utils/resolve-path-in-sb-cache';
 import { es6Transpiler } from '../common/es6Transpiler';
+import { ManagerWebpackOptions } from '../types';
 
 const { version } = require('../../../package.json');
 
@@ -38,7 +39,7 @@ export default async ({
   versionCheck,
   releaseNotesData,
   presets,
-}: any): Promise<Configuration> => {
+}: ManagerWebpackOptions): Promise<Configuration> => {
   const { raw, stringified } = loadEnv();
   const logLevel = await presets.apply('logLevel', undefined);
   const isProd = configType === 'PRODUCTION';
@@ -141,7 +142,7 @@ export default async ({
     },
     resolve: {
       extensions: ['.mjs', '.js', '.jsx', '.json', '.cjs', '.ts', '.tsx'],
-      modules: ['node_modules'].concat(raw.NODE_PATH || []),
+      modules: ['node_modules'].concat((raw.NODE_PATH as string[]) || []),
       alias: {
         ...themingPaths,
         ...uiPaths,
