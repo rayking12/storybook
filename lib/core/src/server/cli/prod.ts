@@ -1,9 +1,26 @@
-import program from 'commander';
+import program, { CommanderStatic } from 'commander';
 import chalk from 'chalk';
 import { logger } from '@storybook/node-logger';
 import { parseList, getEnvConfig } from './utils';
 
-function getCLI(packageJson: { version: string; name: string }) {
+export interface ProdCliOptions {
+  staticDir?: string[];
+  outputDir?: string;
+  configDir?: string;
+  watch?: boolean;
+  quiet?: boolean;
+  loglevel?: string;
+  dll?: boolean;
+  docsDll?: boolean;
+  debugWebpack?: boolean;
+  previewUrl?: string;
+  docs?: boolean;
+}
+
+export function getProdCli(packageJson: {
+  version: string;
+  name: string;
+}): CommanderStatic & ProdCliOptions {
   process.env.NODE_ENV = process.env.NODE_ENV || 'production';
 
   program
@@ -38,5 +55,3 @@ function getCLI(packageJson: { version: string; name: string }) {
 
   return { ...program };
 }
-
-export default getCLI;
